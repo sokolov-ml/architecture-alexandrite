@@ -1,0 +1,58 @@
+title GET/PATCH Order Sequence
+actor User
+participant "MES API" as MES#lightgrey
+database "Кэш (Redis)" as Cache#green
+database "База данных" as DB#darkblue
+
+lifelinestyle  #grey
+activecolor MES #lightgrey
+activecolor Cache #green
+activecolor DB #darkblue
+
+==Запись данных==
+User -> MES: Создание/Изменение заказа
+activate MES
+MES -> DB: Сохранение информации в БД
+MES <-- DB: OK
+
+parallel
+User <-- MES: OK
+MES -> Cache: Сохранить данные в кэш (TTL=1m)
+activate Cache
+parallel off
+MES <-- Cache : OK
+deactivate Cache
+
+deactivate MES
+
+
+==Чтение данных==
+User -> MES: GET /orders/{orderId}
+activate MES
+
+MES -> Cache: Получить данные о заказе (orderId)
+activate Cache
+
+alt Данные есть в кэше
+    MES <-- Cache : Заказ
+    User <-- MES : Вернуть заказ из кэша
+else Данных нет или кэш недоступен
+    MES <-- Cache: Данных нет/ошибка
+    deactivate Cache
+    
+    MES -> DB: SELECT status FROM orders WHERE id=?
+    activate DB
+    MES <-- DB: Информация о заказе
+    deactivate DB
+    
+    parallel
+    User <-- MES : Вернуть заказ из БД
+    MES -> Cache: Сохранить данные в кэш (TTL=1m)
+    activate Cache
+    parallel off
+    MES <-- Cache : OK
+    deactivate Cache
+    deactivate MES
+end
+
+
